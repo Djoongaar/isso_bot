@@ -10,15 +10,16 @@ from selenium import webdriver
 
 
 def timekeeper(function_to_decorate):
-    def wrapper(arg):
+    def wrapper(*args, **kwargs):
         start_time = datetime.now()
-        function_to_decorate(arg)
+        function_to_decorate(*args, **kwargs)
         result = datetime.now() - start_time
         print(f"Время выполнения {function_to_decorate.__name__}: {result}")
+
     return wrapper
 
 
-def parsing_data(file, customer_inn):
+def parsing_data(file, customer_inn, date):
     tenders = []
     soup = BeautifulSoup(file)
     numbers = soup.find_all("div", class_="registry-entry__header-mid__number")
@@ -28,7 +29,7 @@ def parsing_data(file, customer_inn):
     names = soup.find_all("div", class_="registry-entry__body-value")
     for i in range(len(numbers)):
         updated = "-".join(re.findall(r'\d+', dates[i].findChildren()[4].text))
-        if updated == '16-04-2020':  # datetime.now().strftime('%d-%b-%Y'):
+        if updated == date[:10]:
             tenders.append({
                 "model": "tendersapp.tender",
                 "pk": numbers[i].text.strip()[2:],
@@ -41,12 +42,13 @@ def parsing_data(file, customer_inn):
                     "customer_inn": str(customer_inn)
                 }
             })
-    return tenders if len(tenders) > 0 else None
+    return tenders if len(tenders) else None
 
 
 @timekeeper
-def download_tenders(customer_inn):
-    path = f"./tenders/{str(customer_inn)}/{datetime.now().strftime('%d-%b-%Y')}"
+def todays_tenders(customer_inn, date=datetime.now().strftime('%d-%b-%Y-%H')):
+    tenders = []
+    path = f"./tenders/{str(customer_inn)}/{date}"
 
     if not os.path.exists(path):
         # Если такой директории нет значит эту компанию сегодня еще не парсили или парсили без результатов
@@ -62,7 +64,7 @@ def download_tenders(customer_inn):
         try:
             while page_number <= 2:
                 page = driver.page_source
-                data = parsing_data(page, customer_inn)
+                data = parsing_data(page, customer_inn, date)
                 if data:
                     with open(f"{path}/page_{str(page_number)}.json", "w", encoding="utf-8") as file:
                         json.dump(data, file, ensure_ascii=False, indent=4)
@@ -73,10 +75,12 @@ def download_tenders(customer_inn):
         # Вызвать сообщение если возникнет исключение
         except:
             print(f"{customer_inn} raised exception")
-    else:
-        # А иначе выдаем юзеру уже имеющиеся данные c API www.isso.su
-        pass
+    for j in os.listdir(path):
+        with open(f"{path}/{j}", "r", encoding="utf-8") as file:
+            tenders.append(json.load(file))
+    print(tenders)
+    return tenders
 
 
 if __name__ == '__main__':
-    download_tenders('7722765428')
+    todays_tenders('7722765428', '16-04-2020-11')
