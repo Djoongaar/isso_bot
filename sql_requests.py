@@ -6,14 +6,14 @@ from psycopg2.extras import DictCursor
 from config import DATABASE, USER, PASSWORD, HOST
 from isso_bot import bot
 
-top_20_regions = """
+top_10_regions = """
             select count(p.id) as count, r.name
             from projectsapp_project as p
             join projectsapp_region as r
             on p.region_id = r.id
             group by r.id
             order by count desc
-            limit 20
+            limit 10
             """
 
 top_10_customers = """

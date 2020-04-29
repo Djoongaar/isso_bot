@@ -26,14 +26,42 @@ USER = 'issohost'
 PASSWORD = 'ws3iysiw'
 HOST = '127.0.0.1'
 
+# =========================== VEDIS DATABASE SETTINGS ===========================
+
+DB_VEDIS = "db_vedis.vdb"
+
+S_START = "start"  # /start
+S_MENU = "menu"  # /menu
+S_REPORTS = "reports"  # /reports /projects /tenders
+S_PROJECTS = "projects"  # /reports /projects /tenders
+S_TENDERS = "tenders"  # /reports /projects /tenders
+S_CUSTOMER = "customer"  # /customers /regions /categories
+S_REGIONS = "regions"  # /customers /regions /categories
+S_CATEGORIES = "categories"  # /customers /regions /categories
+S_OBJECT = "3"  # /region_id /customer_inn /project_category /tender_id
+
 # ================================= MESSAGES =================================
 
 
 def hello(name):
-    return f"Привет {name}, меня зовут Евгений и я программа-аналитик рынка транспортного " \
-           f"строительства. Для продолжения работы выбери один из пунктов меню: "
+    return f"Привет {name}, я бот-аналитик отрасли транспортного строительства " \
+           f"EVGEN 2.0. У меня можно узнать всю интересующую Вас информацию об" \
+           f"искусственных сооружениях дорожного хозяйства страны, заказчиках и " \
+           f"их торгах. " \
+           f"Для продолжения работы выберите один из пунктов меню: "
 
 
-menu = f"1) Чтобы получить общую статистику по ИССО введите команду /report \n" \
-       f"2) Для получения 'ТОП 20' по регионам России введите команду /russia \n" \
-       f"2) Для получения 'ТОП 10' списка балансодержателей ИССО введите /customers \n"
+menu = f"1) Общие данные статистики: отправьте команду /reports \n" \
+       f"2) Поиск информации о проектах: /projects \n" \
+       f"3) Крупные аукционы и тендеры: /tenders \n" \
+       f"4) Подробная информация о боте-аналитике EVGEN 2.0 /evgen2 \n"
+
+menu_reports = f"1) Данные по типам и категориям ИССО /categories \n" \
+       f"2) Общие данные по стране /russia \n" \
+       f"3) Данные по регионам России /regions \n" \
+       f"4) Статистика по балансодержателям /customers \n"
+
+menu_projects = f"Раздел в разработке. Чтобы связаться с автором " \
+                f"бота EVGEN 2.0 пишите в телеграм для @U_geen\n"
+menu_tenders = f"Раздел в разработке. Чтобы связаться с автором " \
+                f"бота EVGEN 2.0 пишите в телеграм для @U_geen\n"
