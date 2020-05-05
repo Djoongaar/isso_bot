@@ -30,7 +30,7 @@ class States:
     @staticmethod
     def add_customers(chat_id, customers):
         with Vedis(config.DB_VEDIS) as db:
-            s = db.List(chat_id)
+            s = db.List(f"{chat_id}_customers")
             for i in range(len(s)):
                 s.pop()
             s.extend(customers)
@@ -39,9 +39,28 @@ class States:
     def get_customers(chat_id):
         with Vedis(config.DB_VEDIS) as db:
             try:
-                s = db.List(chat_id)
+                s = db.List(f"{chat_id}_customers")
                 last_state = s.pop()
-                return last_state.decode(), db.llen(chat_id)
+                return last_state.decode(), db.llen(f"{chat_id}_customers")
             except:
                 print('Exception in State.pop_customers()')
+                return None
+
+    @staticmethod
+    def add_regions(chat_id, regions):
+        with Vedis(config.DB_VEDIS) as db:
+            s = db.List(f"{chat_id}_regions")
+            for i in range(len(s)):
+                s.pop()
+            s.extend(regions)
+
+    @staticmethod
+    def get_regions(chat_id):
+        with Vedis(config.DB_VEDIS) as db:
+            try:
+                s = db.List(f"{chat_id}_regions")
+                last_state = s.pop()
+                return last_state.decode(), db.llen(f"{chat_id}_regions")
+            except:
+                print('Exception in State.pop_regions()')
                 return None
