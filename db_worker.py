@@ -26,3 +26,22 @@ class States:
                 return last_state.decode()
             except:
                 print('Exception in State.pop_state()')
+
+    @staticmethod
+    def add_customers(chat_id, customers):
+        with Vedis(config.DB_VEDIS) as db:
+            s = db.List(chat_id)
+            for i in range(len(s)):
+                s.pop()
+            s.extend(customers)
+
+    @staticmethod
+    def get_customers(chat_id):
+        with Vedis(config.DB_VEDIS) as db:
+            try:
+                s = db.List(chat_id)
+                last_state = s.pop()
+                return last_state.decode(), db.llen(chat_id)
+            except:
+                print('Exception in State.pop_customers()')
+                return None
