@@ -40,7 +40,7 @@ def callbacks(message):
     elif back == "/tenders":
         tenders(message)
     elif back == "/customers":
-        customer(message)
+        customer_list(message)
     elif back == "None":
         print("None")
     else:
@@ -114,20 +114,21 @@ def customer_list(message):
     next_customers(message)
 
 
-@bot.message_handler(regexp="/\d{10}")
-def customer(message):
-    rep = sql_requests.get_report(message.text[1:])
+@bot.message_handler(regexp="/\d{10}")  # customer_inn, customer details
+def customer_details(message):
+    rep = sql_requests.get_customer_details(message.text[1:])
+    States.set_inn(message.chat.id, message.text[1:])
     bot.send_message(message.chat.id, rep, parse_mode="HTML")
-    bot.send_message(message.chat.id, 'Чтобы вернуться в предыдущий раздел введите <i>/back</i>', parse_mode='HTML')
+
+    bot.send_photo(message.chat.id, photo=open(sql_requests.type_report(message.text[1:]), 'rb'))
+    bot.send_photo(message.chat.id, photo=open(sql_requests.category_report(message.text[1:]), 'rb'))
 
 
-@bot.message_handler(regexp="/plans\d+")
+@bot.message_handler(commands=["future_projects"])
 def download_plans(message):
-    plans = loader.download_plans(''.join(re.findall(r'\d+', message.text)))
-    for plan in plans:
-        report = loader.create_report(plan)
-        if report:
-            bot.send_message(message.chat.id, report, parse_mode="HTML")
+    future_projects = sql_requests.future_projects(States.get_inn(message.chat.id))
+    for project in future_projects:
+        bot.send_message(message.chat.id, project)
 
 
 # ===================================================== ADVANCED MENU ==================================================
@@ -141,19 +142,11 @@ def send_menu(message):
 @bot.message_handler(commands=["reports"])
 def reports(message):
     bot.send_message(message.chat.id, in_development, parse_mode='HTML')
-    bot.send_message(message.chat.id, 'Чтобы вернуться в предыдущий раздел введите <i>/back</i>', parse_mode='HTML')
-
-
-@bot.message_handler(commands=["projects"])
-def projects(message):
-    bot.send_message(message.chat.id, in_development, parse_mode='HTML')
-    bot.send_message(message.chat.id, 'Чтобы вернуться в предыдущий раздел введите <i>/back</i>', parse_mode='HTML')
 
 
 @bot.message_handler(commands=["tenders"])
 def tenders(message):
     bot.send_message(message.chat.id, in_development, parse_mode='HTML')
-    bot.send_message(message.chat.id, 'Чтобы вернуться в предыдущий раздел введите <i>/back</i>', parse_mode='HTML')
 
 
 @bot.message_handler(commands=["categories"])
@@ -162,7 +155,6 @@ def categories(message):
                                       'можете изучить в статье на информационно-аналитическом портале '
                                       '<a href="http://127.0.0.1:8000/report/categories">isso.su</a>',
                      parse_mode="HTML", disable_web_page_preview=True)
-    bot.send_message(message.chat.id, 'Чтобы вернуться в предыдущий раздел введите <i>/back</i>', parse_mode='HTML')
 
 
 @bot.message_handler(func=lambda message: message.text)

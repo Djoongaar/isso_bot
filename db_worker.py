@@ -25,7 +25,7 @@ class States:
                 print(last_state.decode())
                 return last_state.decode()
             except:
-                print('Exception in State.pop_state()')
+                print('Exception in State.get_state()')
 
     @staticmethod
     def add_customers(chat_id, customers):
@@ -62,5 +62,21 @@ class States:
                 last_state = s.pop()
                 return last_state.decode(), db.llen(f"{chat_id}_regions")
             except:
-                print('Exception in State.pop_regions()')
+                print('Exception in State.get_regions()')
+                return None
+
+    @staticmethod
+    def set_inn(chat_id, inn):
+        with Vedis(config.DB_VEDIS) as db:
+            s = db.List(f"{chat_id}_inn")
+            s.append(inn)
+
+    @staticmethod
+    def get_inn(chat_id):
+        with Vedis(config.DB_VEDIS) as db:
+            try:
+                s = db.List(f"{chat_id}_inn")
+                return s[-1].decode()
+            except:
+                print('Exception in State.get_inn()')
                 return None

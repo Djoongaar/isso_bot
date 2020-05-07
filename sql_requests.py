@@ -1,10 +1,12 @@
+import os
 from contextlib import closing
-
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
 import psycopg2
 from psycopg2.extras import DictCursor
 
 from config import DATABASE, USER, PASSWORD, HOST
-from isso_bot import bot
 
 top_regions = """
             select count(p.id) as count, r.id, r.name
@@ -30,13 +32,21 @@ LIMIT 50;
 """
 
 
-def get_report(customer_inn):
-    report = {
-        'cat_1': 0,
-        'cat_2': 0,
-        'cat_3': 0,
-        'cat_4': 0
-    }
+def get_rate(money):
+    try:
+        money = float(money)
+        if money >= 1000000000:
+            value = f"{round(money / 1000000000, 2)} млрд."
+        else:
+            value = f"{round(money / 1000000, 2)} млн."
+    except ValueError as e:
+        print(e)
+        value = "Данные отсутствуют"
+    return value
+
+
+def get_customer_details(customer_inn):
+    report = {}
     with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
         with conn.cursor(cursor_factory=DictCursor) as cursor:
             cursor.execute(
@@ -55,6 +65,122 @@ def get_report(customer_inn):
                 report['inn'] = i['inn']
                 report['kpp'] = i['kpp']
                 report['management'] = i['management']
+
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                select sum(start_price)
+                from tendersapp_tender
+                where customer_inn = '{customer_inn}' 
+                and created between '2019-01-01' and '2020-01-01'
+                """
+            )
+            for i in cursor:
+                report['contracts_2019'] = f'{i["sum"]}'
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                select sum(start_price)
+                from tendersapp_tender
+                where customer_inn = '{customer_inn}' 
+                    and created between '2019-01-01' and '2020-01-01'
+                    and to_tsvector(name) @@ to_tsquery('(мост | путепровод | эстакада | тоннель)')
+                """
+            )
+            for i in cursor:
+                report['bridges_2019'] = f'{i["sum"]}'
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                select sum(start_price)
+                from tendersapp_plan
+                where customer_inn = '{customer_inn}'
+                """
+            )
+            for i in cursor:
+                report['plans_2020'] = f'{i["sum"]}'
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                select sum(start_price)
+                from tendersapp_plan
+                where customer_inn = '{customer_inn}' 
+                    and to_tsvector(name) @@ to_tsquery('(мост | путепровод | эстакада | тоннель)')
+                """
+            )
+            for i in cursor:
+                report['plans_isso_2020'] = f'{i["sum"]}'
+        print(report)
+    contracts_2019 = get_rate(report['contracts_2019'])
+    bridges_2019 = get_rate(report['bridges_2019'])
+    plans_2020 = get_rate(report['plans_2020'])
+    plans_isso_2020 = get_rate(report['plans_isso_2020'])
+    return f"<b>Название организации: </b>\n" \
+           f"{report['fullname']}\n" \
+           f"\n" \
+           f"<b>ИНН / КПП:</b>\n" \
+           f"{report['inn']} / {report['kpp']}\n" \
+           f"\n" \
+           f"<b>Адрес: </b>\n" \
+           f"{report['address']}\n" \
+           f" \n" \
+           f"<b>Форма организации:</b>\n" \
+           f"{report['form_title']}\n" \
+           f"\n" \
+           f"<b>{report['management'].title()}:</b>\n" \
+           f"{report['name']}\n" \
+           f" \n" \
+           f"<b>Финансовая статистика:</b>\n" \
+           f"Освоено в 2019г.: {contracts_2019}\n" \
+           f"... в том числе на ИССО: {bridges_2019}\n" \
+           f"План бюджета на 2020: {plans_2020}\n" \
+           f"... в том числе на ИССО: {plans_isso_2020}\n" \
+           f"\n" \
+           f"<b>Планируемые проекты: </b>\n" \
+           f"/future_projects\n"
+
+
+def insert_into_tendersapp_plan(data):
+    with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                insert into tendersapp_plan 
+                (id,
+                name,
+                start_price,
+                created,
+                updated,
+                customer_inn,
+                year)
+                values ('{
+                data['pk']}', 
+                '{data['fields']['name']}', 
+                '{data['fields']['start_price']}',
+                '{data['fields']['created']}',
+                '{data['fields']['updated']}',
+                '{data['fields']['customer_inn']}',
+                '{data['fields']['year']}') 
+                on conflict(id) do update set 
+                start_price = EXCLUDED.start_price,
+                name = EXCLUDED.name,
+                updated = EXCLUDED.updated,
+                customer_inn = EXCLUDED.customer_inn,
+                year = EXCLUDED.year;
+                """
+            )
+        conn.commit()
+
+
+def category_report(customer_inn):
+    bridges = {
+        'КАТЕГОРИЯ 1': 0,
+        'КАТЕГОРИЯ 2': 0,
+        'КАТЕГОРИЯ 3': 0,
+        'КАТЕГОРИЯ 4': 0
+    }
+    customers = []
+    with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
         with conn.cursor(cursor_factory=DictCursor) as cursor:
             cursor.execute(
                 f"""
@@ -67,38 +193,109 @@ def get_report(customer_inn):
                 """
             )
             for i in cursor:
-                report[f'cat_{i["category"]}'] = f'{i["count"]}'
-        print(report)
-    return f"<b>Полное название оранизации</b>\n" \
-           f"{report['fullname']}\n" \
-           f" \n" \
-           f"<b>ИНН / КПП</b>\n" \
-           f"{report['inn']} / {report['kpp']}\n" \
-           f" \n" \
-           f"<b>Адрес</b>\n" \
-           f"{report['address']}\n" \
-           f" \n" \
-           f"<b>{report['management'].title()}</b>\n" \
-           f"{report['name']}\n" \
-           f" \n" \
-           f"<b>Количество сооружений 1, 2, 3 и 4 кат.:</b>\n" \
-           f"{report['cat_1'] if report['cat_1'] else 0}, {report['cat_2'] if report['cat_2'] else 0}, " \
-           f"{report['cat_3'] if report['cat_3'] else 0} и {report['cat_4'] if report['cat_4'] else 0} штук " \
-           f"соответственно \n" \
-           f" \n" \
-           f"<b>Мостов, путепроводов, эстакад, тоннелей</b>\n" \
-           f"pass - в разработке\n" \
-           f" \n" \
-           f"<b>Позиция в рейтинге:</b>\n" \
-           f"pass - в разработке\n" \
-           f" \n" \
-           f"<b>Общая сумма контрактов в 2019г.</b>\n" \
-           f"pass - в разработке \n" \
-           f" \n" \
-           f"<b>Сумма контрактов с начала года:</b>\n" \
-           f"pass - в разработке\n" \
-           f" \n" \
-           f"<b>Планы на текущий год: </b>\n" \
-           f"/plans{customer_inn}\n" \
-           f" \n"
+                bridges[f'КАТЕГОРИЯ {i["category"]}'] = f'{i["count"]}'
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                 SELECT count(*) AS count,
+                    c.title,
+                    c.fullname,
+                    c.inn
+                   FROM projectsapp_project p
+                     JOIN projectsapp_customer c ON p.customer_id = c.id
+                  GROUP BY c.id
+                  ORDER BY (count(*)) DESC
+                 LIMIT 5;
+                """
+            )
+            for i in cursor:
+                customers.append({
+                    "name": i['title'],
+                    "fullname": i['fullname'],
+                    "inn": i['inn'],
+                    "count": int(i["count"])
+                })
+    categories = [i for i in bridges.keys()]
+    values = [int(i) for i in bridges.values()]
+    pd.DataFrame(values, categories, columns=['Количество']).plot(kind='bar', color='magenta', rot=0, width=0.8)
+    plt.title('Количество сооружений по категориям, шт.')
+    category_hist_path = os.path.join('media', f'category_hist_{customer_inn}.png')
+    plt.savefig(category_hist_path)
+    plt.close()
+    return category_hist_path
 
+
+def type_report(customer_inn):
+    types = []
+    with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                SELECT count(p.id),
+                    'МОСТЫ'::text as types
+                   FROM projectsapp_project as p
+                   JOIN projectsapp_customer as c
+                    ON p.customer_id = c.id
+                  WHERE c.inn::text = '{customer_inn}' and
+                  (to_tsvector(p.name) @@ to_tsquery('мост'))
+
+                UNION
+
+                SELECT count(p.id),
+                    'ПУТЕПРОВОДЫ'::text as types
+                   FROM projectsapp_project as p
+                   JOIN projectsapp_customer as c
+                    ON p.customer_id = c.id
+                  WHERE c.inn::text = '{customer_inn}' and
+                  (to_tsvector(p.name) @@ to_tsquery('путепровод'))
+
+                UNION
+
+                SELECT count(p.id),
+                    'ЭСТАКАДЫ'::text as types
+                   FROM projectsapp_project as p
+                   JOIN projectsapp_customer as c
+                    ON p.customer_id = c.id
+                  WHERE c.inn::text = '{customer_inn}' and
+                  (to_tsvector(p.name) @@ to_tsquery('эстакада'))
+
+                UNION
+
+                SELECT count(p.id),
+                    'ТОННЕЛИ'::text as types
+                   FROM projectsapp_project as p
+                   JOIN projectsapp_customer as c
+                    ON p.customer_id = c.id
+                  WHERE c.inn::text = '{customer_inn}' and
+                  (to_tsvector(p.name) @@ to_tsquery('тоннель'));
+                """
+            )
+            for i in cursor:
+                types.append({
+                    "types": i["types"],
+                    "count": i["count"]
+                })
+    types = pd.DataFrame(types)
+    plt.bar(types['types'], types['count'], width=0.8)
+    plt.title('Количество сооружений по типам, шт.')
+    types_hist_path = os.path.join('media', f'types_hist_{customer_inn}.png')
+    plt.savefig(types_hist_path)
+    plt.close()
+    return types_hist_path
+
+
+def future_projects(customer_inn):
+    projects = []
+    with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                select *
+                from tendersapp_plan
+                where customer_inn = '{customer_inn}' 
+                    and to_tsvector(name) @@ to_tsquery('(мост | путепровод | эстакада | тоннель)')
+                """
+            )
+            for i in cursor:
+                projects.append(i['name'])
+    return projects

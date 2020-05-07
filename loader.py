@@ -7,6 +7,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
+import sql_requests
 
 
 def timekeeper(function_to_decorate):
@@ -21,7 +22,7 @@ def timekeeper(function_to_decorate):
     return wrapper
 
 
-# ================================== БОТ ЗАГРУЗКИ И ПАРСИНГА ТЕНДЕРОВ ==================================
+# ================================== ПАРСИНГ ТЕНДЕРОВ ==================================
 @timekeeper
 def parsing_data(customer_inn):
     tenders = []
@@ -101,11 +102,13 @@ def download_tenders(customer_inn):
         print(f"{customer_inn} raised exception")
 
 
+# ================================== ПАРСИНГ ПЛАН-ГРАФИКОВ ==================================
+
+
 @timekeeper
 def download_plans(customer_inn):
     driver = webdriver.Chrome()
-    driver.get(
-        "https://zakupki.gov.ru/epz/orderplan/search/results.html?morphology=on&search-filter=%D0%94%D0%B0%D1%82%D0%B5+%D1%80%D0%B0%D0%B7%D0%BC%D0%B5%D1%89%D0%B5%D0%BD%D0%B8%D1%8F&structured=true&fz44=on&customerPlaceWithNested=on&actualPeriodRangeYearFrom=2020&sortBy=BY_MODIFY_DATE&pageNumber=1&sortDirection=false&recordsPerPage=_10&searchType=false")
+    driver.get("https://zakupki.gov.ru/epz/orderplan/search/results.html?morphology=on&search-filter=%D0%94%D0%B0%D1%82%D0%B5+%D1%80%D0%B0%D0%B7%D0%BC%D0%B5%D1%89%D0%B5%D0%BD%D0%B8%D1%8F&structured=true&fz44=on&customerPlaceWithNested=on&actualPeriodRangeYearFrom=2020&sortBy=BY_MODIFY_DATE&pageNumber=1&sortDirection=false&recordsPerPage=_10&searchType=false")
     input_search = driver.find_element_by_id("searchString")
     input_search.click()
     input_search.send_keys(customer_inn)
@@ -118,7 +121,7 @@ def download_plans(customer_inn):
         button = link_div.find_element_by_tag_name('a')
         driver.execute_script("arguments[0].click();", button)
         page = driver.page_source
-        plans_list = parsing_plans_dir(page, customer_inn)
+        plans_list = parsing_plans(page, customer_inn)
         print(type(plans_list))
         plans.extend(plans_list)
         # Запускаем цикл сбора информации, котррую затем преобразовавыем в формат json и складываем в переменную tenders
@@ -129,7 +132,7 @@ def download_plans(customer_inn):
                 driver.execute_script("arguments[0].click();", button_next)
                 time.sleep(random.randint(1, 2))
                 page = driver.page_source
-                plans_list = parsing_plans_dir(page, customer_inn)
+                plans_list = parsing_plans(page, customer_inn)
                 plans.extend(plans_list)
         # Если в блоке пагинации нет элемента "next page" значит мы дошли до конца списка
         except NoSuchElementException:
@@ -139,10 +142,11 @@ def download_plans(customer_inn):
             print(f"{customer_inn} raised exception {e}")
     except NoSuchElementException as e:
         print(e)
-    return plans
+    for i in plans:
+        sql_requests.insert_into_tendersapp_plan(i)
 
 
-def parsing_plans_dir(page, customer_inn):
+def parsing_plans(page, customer_inn):
     plans = []
     soup = BeautifulSoup(page, 'html.parser')
     numbers = soup.find_all("div", class_="search-registry-entry-block box-shadow-search-input")
@@ -198,97 +202,20 @@ def parsing_plans_dir(page, customer_inn):
     return plans
 
 
-def create_report(plan):
-    pattern = re.compile(r'.*мост.* | .*путепровод.*')
-    if pattern.match(plan['fields']['name']):
-        return f"<b>Полное название мероприятия</b>\n" \
-               f"{plan['fields']['name']}\n" \
-               f" \n" \
-               f"<b>ID в план-графике</b>\n" \
-               f"{plan['pk']}\n" \
-               f" \n" \
-               f"<b>Запланировано на год: </b>\n" \
-               f"{plan['fields']['year']}\n"
-
-# ================================== БОТ ОБНОВЛЕНИЯ ТЕНДЕРОВ КЛИЕНТА ==================================
+def insert_plans(plans):
+    for plan in plans:
+        sql_requests.insert_into_tendersapp_plan(plan)
 
 
 customers = [
-    "1660049283",
-    "0274162934",
-    "7717151380",
-    "5000001525",
-    "2538030581",
-    "6905009018",
-    "7722765428",
-    "2900000511",
-    "6658078110",
-    "3664098214",
-    "5257056163",
-    "2725022365",
-    "6315800523",
-    "3525092617",
-    "1101160228",
-    "6234066600",
-    "1831088158",
-    "7714125897",
-    "5610070022",
-    "7826062821",
-    "2225079331",
-    "6163053715",
-    "5321047240",
-    "2460017720",
-    "2309075012",
-    "3808059441",
-    "5836010699",
-    "3234046165",
-    "2320100329",
-    "4027074134"
-]
-customer_plans = [
-    "0278007048",
-    "0326012322",
-    "1001117010",
-    "1402008636",
-    "1660061210",
-    "2126000323",
-    "2309033598",
-    "2460028834",
-    "2632041647",
-    "2725022365",
-    # "2721144517",
-    "3525065660",
-    "3800000140",
-    "4909083435",
-    "5031035549",
-    "5752000133",
-    "5836010699",
-    # "6147014910",
-    "6725000810",
-    "6832018699",
-    "6905005038",
-    "7223007316",
-    "7451189048",
-    "7714125897",
-    "7826062821",
-    "0814041687",
-    "2320100329",
-    "5405201071",
-    "7814148129",
-    "2225061905",
-    "7536053744",
-    "1435193127",
-    "9102157783"
-]
-set_customers = [
-    '6147014910',
-    '5031035549',
-    '7722765428',
-    '7717151380',
-    '2309075012',
+    '6147014910',  # УПРДОР "Азов"
+    '5031035549',  # УПРДОР "Москва - НН"
+    '7722765428',  # ГБУ "Гормост"
+    '7717151380',  # ГК "Автодор"
+    '2309075012',  # ГКУ "Краснодаравтодор"
     '7814148129',
     '3234046165',
-    '1660049283',
+    '1660049283',  # ГКУ "Главтатдортранс"
     '1001117010',
     '2225061905',
     '0274162934',
@@ -335,11 +262,16 @@ set_customers = [
     '6234066600',
     '7826062821',
     '2538030581',
-    '0326012322',
+    '0326012322',  # УПРДОР 'ЮЖНЫЙ БАЙКАЛ'
     '5752000133',
     '2309033598',
     '2320100329'
 ]
 
 if __name__ == '__main__':
-    download_plans(customers[0])
+    path = 'plans'
+    print(os.listdir(path))
+    for i in os.listdir(path):
+        with open(f"{path}/{i}", 'r', encoding='utf-8') as file:
+            dump = json.load(file)
+            insert_plans(dump)
