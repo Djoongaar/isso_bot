@@ -14,7 +14,7 @@ import sql_requests
 # ============================== BOT API CONNECTION ==============================
 from db_worker import States
 
-apihelper.proxy = {'https': f'socks5h://{proxy_list[1]}'}
+apihelper.proxy = {'https': f'socks5h://{proxy_list[4]}'}
 bot = telebot.TeleBot(token)
 
 # ============================== PROCESS MESSAGE ==============================
@@ -35,8 +35,6 @@ def callbacks(message):
         say_hello(message)
     elif back == "/menu":
         send_menu(message)
-    elif back == "/projects":
-        projects(message)
     elif back == "/tenders":
         tenders(message)
     elif back == "/customers":
@@ -153,7 +151,7 @@ def tenders(message):
 def categories(message):
     bot.send_message(message.chat.id, 'Подробный отчет о категориях дорожных сооружений и их статистические данные Вы '
                                       'можете изучить в статье на информационно-аналитическом портале '
-                                      '<a href="http://127.0.0.1:8000/report/categories">isso.su</a>',
+                                      '<a href="http://isso.su/report/categories">isso.su</a>',
                      parse_mode="HTML", disable_web_page_preview=True)
 
 

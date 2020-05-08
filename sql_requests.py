@@ -82,9 +82,8 @@ def get_customer_details(customer_inn):
                 f"""
                 select sum(start_price)
                 from tendersapp_tender
-                where customer_inn = '{customer_inn}' 
-                    and created between '2019-01-01' and '2020-01-01'
-                    and to_tsvector(name) @@ to_tsquery('(мост | путепровод | эстакада | тоннель)')
+                where to_tsvector('russian', name) @@ to_tsquery('russian', '(мост | путепровод | эстакада | тоннель)') and customer_inn = '{customer_inn}' 
+                    and (created between '2019-01-01' and '2020-01-01')
                 """
             )
             for i in cursor:
@@ -104,8 +103,7 @@ def get_customer_details(customer_inn):
                 f"""
                 select sum(start_price)
                 from tendersapp_plan
-                where customer_inn = '{customer_inn}' 
-                    and to_tsvector(name) @@ to_tsquery('(мост | путепровод | эстакада | тоннель)')
+                where to_tsvector('russian', name) @@ to_tsquery('russian', '(мост | путепровод | эстакада | тоннель)') and customer_inn = '{customer_inn}'
                 """
             )
             for i in cursor:
@@ -237,7 +235,7 @@ def type_report(customer_inn):
                    JOIN projectsapp_customer as c
                     ON p.customer_id = c.id
                   WHERE c.inn::text = '{customer_inn}' and
-                  (to_tsvector(p.name) @@ to_tsquery('мост'))
+                  (to_tsvector('russian', p.name) @@ to_tsquery('russian', 'мост'))
 
                 UNION
 
@@ -247,7 +245,7 @@ def type_report(customer_inn):
                    JOIN projectsapp_customer as c
                     ON p.customer_id = c.id
                   WHERE c.inn::text = '{customer_inn}' and
-                  (to_tsvector(p.name) @@ to_tsquery('путепровод'))
+                  (to_tsvector('russian', p.name) @@ to_tsquery('russian', 'путепровод'))
 
                 UNION
 
@@ -257,7 +255,7 @@ def type_report(customer_inn):
                    JOIN projectsapp_customer as c
                     ON p.customer_id = c.id
                   WHERE c.inn::text = '{customer_inn}' and
-                  (to_tsvector(p.name) @@ to_tsquery('эстакада'))
+                  (to_tsvector('russian', p.name) @@ to_tsquery('russian', 'эстакада'))
 
                 UNION
 
@@ -267,7 +265,7 @@ def type_report(customer_inn):
                    JOIN projectsapp_customer as c
                     ON p.customer_id = c.id
                   WHERE c.inn::text = '{customer_inn}' and
-                  (to_tsvector(p.name) @@ to_tsquery('тоннель'));
+                  (to_tsvector('russian', p.name) @@ to_tsquery('russian', 'тоннель'));
                 """
             )
             for i in cursor:
@@ -293,7 +291,7 @@ def future_projects(customer_inn):
                 select *
                 from tendersapp_plan
                 where customer_inn = '{customer_inn}' 
-                    and to_tsvector(name) @@ to_tsquery('(мост | путепровод | эстакада | тоннель)')
+                    and to_tsvector('russian', name) @@ to_tsquery('russian', '(мост | путепровод | эстакада | тоннель)')
                 """
             )
             for i in cursor:
