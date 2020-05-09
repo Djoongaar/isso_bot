@@ -10,3 +10,5 @@ __pycache__
 /plans/
 /config.py
 /chromedriver.exe
+/debug.log
+/tenders.py

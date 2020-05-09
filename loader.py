@@ -66,8 +66,8 @@ def download_tenders(customer_inn):
     time.sleep(0.5)
     input_search.submit()
     time.sleep(random.randint(1, 3))
+    # Определяем количество записей выдачи поиска
     number = int(''.join(re.findall(r'\d+', driver.find_element_by_class_name("search-results__total").text)))
-    print(number)
     tenders = []
     # Запускаем цикл сбора информации, которую затем преобразовавыем в формат json и складываем в переменную tenders
     try:
@@ -83,55 +83,65 @@ def download_tenders(customer_inn):
 
     # Если в блоке пагинации нет элемента "next page" значит мы дошли до конца списка
     except NoSuchElementException:
-        if len(tenders) == 0:
+        driver.close()
+        vdisplay.stop()
+        if len(tenders) == number == 0:
+            # Если у такого контрагента нет закупок - возвращаем False
             print(f"У клиента с ИНН {customer_inn} нет закупок.\n")
-            driver.close()
-            vdisplay.stop()
             return False
         elif len(tenders) >= number*0.99 or len(tenders) == 1000:
+            # Если у контрагента есть закупки и мы почти все получили, то возвращаем True и записываем в СУБД
             print(f"Загрузка торгов по ИНН {customer_inn} завершена успешно.")
-            driver.close()
-            vdisplay.stop()
             for tender in tenders:
                 # Идем циклом по тендерам и вставляем в СУБД
                 sql_requests.insert_into_tendersapp_tender(tender)
             return True
         elif len(tenders) < number*0.99:
-            driver.close()
-            vdisplay.stop()
+            # Если у контрагента есть закупки но по какой-то причине нам не удалось их загрузить - вызываем рекурсию
             print(f"Во время загрузки торгов по ИНН {customer_inn} часть данных была потеряна.\n"
                   f"Объявлено торгов: {number}, загружено торгов: {len(tenders)}\n")
             download_tenders(customer_inn)
             return True
         else:
-            driver.close()
+            # Если хз какой результат - возвращаем False и выходим из программы
             print(f"Что-то пошло не так во время загрузки тендеров клиента с ИНН {customer_inn}")
             return False
     except:
-        print("Неизвестная ошибка при загрузке тендеров")
+        print("Неизвестная ошибка при загрузке тендеров клиента с ИНН {customer_inn}")
+        driver.close()
+        vdisplay.stop()
         return False
 
 # ================================== ЗАГРУЗКА ПЛАН-ГРАФИКОВ ==================================
 
 
 def download_plans(customer_inn):
-    driver = webdriver.Chrome()
-    driver.get(
-        "https://zakupki.gov.ru/epz/orderplan/search/results.html?morphology=on&search-filter=%D0%94%D0%B0%D1%82%D0%B5+%D1%80%D0%B0%D0%B7%D0%BC%D0%B5%D1%89%D0%B5%D0%BD%D0%B8%D1%8F&structured=true&fz44=on&customerPlaceWithNested=on&actualPeriodRangeYearFrom=2020&sortBy=BY_MODIFY_DATE&pageNumber=1&sortDirection=false&recordsPerPage=_10&searchType=false")
+    vdisplay = Xvfb()
+    vdisplay.start()
+    chrome_options = Options()
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-setuid-sandbox")
+    driver = webdriver.Chrome('/usr/bin/chromedriver')
+    # driver = webdriver.Chrome()
+    driver.get("https://zakupki.gov.ru/epz/orderplan/search/results.html?morphology=on&search-filter="
+               "%D0%94%D0%B0%D1%82%D0%B5+%D1%80%D0%B0%D0%B7%D0%BC%D0%B5%D1%89%D0%B5%D0%BD%D0%B8%D1%8F"
+               "&structured=true&fz44=on&customerPlaceWithNested=on&actualPeriodRangeYearFrom=2020"
+               "&sortBy=BY_MODIFY_DATE&pageNumber=1&sortDirection=false&recordsPerPage=_10&searchType=false")
     input_search = driver.find_element_by_id("searchString")
     input_search.click()
     input_search.send_keys(customer_inn)
     time.sleep(0.5)
     input_search.submit()
     time.sleep(1)
+    number = int(''.join(re.findall(r'\d+', driver.find_element_by_class_name("search-results__total").text)))
     plans = []
     try:
         link_div = driver.find_element_by_class_name("registry-entry__body-caption")
         button = link_div.find_element_by_tag_name('a')
         driver.execute_script("arguments[0].click();", button)
+        time.sleep(1)
         page = driver.page_source
         plans_list = parsing_plans(page, customer_inn)
-        print(type(plans_list))
         plans.extend(plans_list)
         # Запускаем цикл сбора информации, которую затем преобразовавыем в формат json и складываем в переменную tenders
         try:
@@ -145,14 +155,39 @@ def download_plans(customer_inn):
                 plans.extend(plans_list)
         # Если в блоке пагинации нет элемента "next page" значит мы дошли до конца списка
         except NoSuchElementException:
-            print(f"{customer_inn} finished normally")
+            driver.close()
+            vdisplay.stop()
+            if len(plans) == number == 0:
+                print(f"У клиента с ИНН {customer_inn} нет план-гафика.")
+                return False
+            elif len(plans) >= number * 0.99 or len(plans) == 1000:
+                # Если у контрагента есть закупки и мы почти все получили, то возвращаем True и записываем в СУБД
+                print(f"Загрузка торгов по ИНН {customer_inn} завершена успешно.")
+                for plan in plans:
+                    # Идем циклом по планам и вставляем в СУБД
+                    sql_requests.insert_into_tendersapp_plan(plan)
+                return True
+            elif len(plans) < number * 0.99:
+                # Если у контрагента есть закупки но по какой-то причине нам не удалось их загрузить - вызываем рекурсию
+                print(f"Во время загрузки торгов по ИНН {customer_inn} часть данных была потеряна.\n"
+                      f"Объявлено планов: {number}, загружено планов: {len(plans)}\n")
+                download_plans(customer_inn)
+                return True
+            else:
+                # Если хз какой результат - возвращаем False и выходим из программы
+                print(f"Что-то пошло не так во время загрузки планов клиента с ИНН {customer_inn}")
+                return False
         # Вызвать сообщение если возникнет какая-то другая ошибка
-        except IndexError as e:
-            print(f"{customer_inn} raised exception {e}")
-    except NoSuchElementException as e:
-        print(e)
-    for plan in plans:
-        sql_requests.insert_into_tendersapp_plan(plan)
+        except:
+            print(f"{customer_inn} raised exception")
+            driver.close()
+            vdisplay.stop()
+            return False
+    except:
+        driver.close()
+        vdisplay.stop()
+        print(f"{customer_inn} raised exception")
+        return False
 
 
 def parsing_plans(page, customer_inn):
