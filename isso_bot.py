@@ -190,7 +190,7 @@ def download_plans(message):
 
 @bot.message_handler(commands=["update_tenders"])
 def update_tenders(message):
-    customers_list = sql_requests.customers_list()
+    customers_list = sql_requests.customers_list()[15:]
     for customer in customers_list:
         mes = f"Начинаю загрузку клиента: {customer['inn']}\n" \
               f"{customer['fullname']}"

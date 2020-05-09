@@ -14,18 +14,6 @@ import config
 from bs4 import BeautifulSoup
 
 
-def timekeeper(function_to_decorate):
-    start_time = datetime.now()
-
-    def wrapper(*args, **kwargs):
-        func = function_to_decorate(*args, **kwargs)
-        result = datetime.now() - start_time
-        print(f"Время выполнения {function_to_decorate.__name__}: {result}")
-        return func
-
-    return wrapper
-
-
 # ================================== ЗАГРУЗКА ТЕНДЕРОВ ==================================
 
 
@@ -63,7 +51,6 @@ def parsing_data(page, customer_inn):
     return tenders
 
 
-@timekeeper
 def download_tenders(customer_inn):
     vdisplay = Xvfb()
     vdisplay.start()
@@ -89,10 +76,10 @@ def download_tenders(customer_inn):
             page = driver.page_source
             tenders_list = parsing_data(page, customer_inn)
             tenders.extend(tenders_list)
-            time.sleep(random.randint(1, 2))
+            time.sleep(0.5)
             button_next = driver.find_element_by_class_name("paginator-button-next")
             driver.execute_script("arguments[0].click();", button_next)
-            time.sleep(random.randint(3, 5))
+            time.sleep(random.randint(1, 3))
 
     # Если в блоке пагинации нет элемента "next page" значит мы дошли до конца списка
     except NoSuchElementException:
@@ -101,7 +88,7 @@ def download_tenders(customer_inn):
             driver.close()
             vdisplay.stop()
             return False
-        elif len(tenders) == number or len(tenders) == 1000:
+        elif len(tenders) >= number*0.99 or len(tenders) == 1000:
             print(f"Загрузка торгов по ИНН {customer_inn} завершена успешно.")
             driver.close()
             vdisplay.stop()
@@ -109,8 +96,9 @@ def download_tenders(customer_inn):
                 # Идем циклом по тендерам и вставляем в СУБД
                 sql_requests.insert_into_tendersapp_tender(tender)
             return True
-        elif len(tenders) < number:
+        elif len(tenders) < number*0.99:
             driver.close()
+            vdisplay.stop()
             print(f"Во время загрузки торгов по ИНН {customer_inn} часть данных была потеряна.\n"
                   f"Объявлено торгов: {number}, загружено торгов: {len(tenders)}\n")
             download_tenders(customer_inn)
@@ -126,7 +114,6 @@ def download_tenders(customer_inn):
 # ================================== ЗАГРУЗКА ПЛАН-ГРАФИКОВ ==================================
 
 
-@timekeeper
 def download_plans(customer_inn):
     driver = webdriver.Chrome()
     driver.get(
@@ -278,67 +265,3 @@ def find_customer(company_inn):
     print(valid_data)
     sql_requests.insert_into_projectsapp_customer(valid_data)
     return valid_data
-
-
-customers = [
-    '6147014910',  # УПРДОР "Азов"
-    '5031035549',  # УПРДОР "Москва - НН"
-    '7722765428',  # ГБУ "Гормост"
-    '7717151380',  # ГК "Автодор"
-    '2309075012',  # ГКУ "Краснодаравтодор"
-    '7814148129',
-    '3234046165',
-    '1660049283',  # ГКУ "Главтатдортранс"
-    '1001117010',
-    '2225061905',
-    '0274162934',
-    '9102157783',
-    '2725022365',
-    '5836010699',
-    '2900000511',
-    '5000001525',
-    '6905009018',
-    '2460017720',
-    '0814041687',
-    '7223007316',
-    '7536053744',
-    '2632041647',
-    '3525065660',
-    '5257056163',
-    '4909083435',
-    '7451189048',
-    '3808059441',
-    '5405201071',
-    '3525092617',
-    '6163053715',
-    '2126000323',
-    '3800000140',
-    '6725000810',
-    '0278007048',
-    '7714125897',
-    '7704515009',  # ГКУ ТЕНДЕРНЫЙ КОМИТЕТ
-    '7728381587',  # ГКУ УДМС г. Москвы
-    '1660061210',
-    '1402008636',
-    '6658078110',
-    '3664098214',
-    '1831088158',
-    '1101160228',
-    '4027074134',
-    '6315800523',
-    '5321047240',
-    '2721144517',
-    '6832018699',
-    '6905005038',
-    '5610070022',
-    '1435193127',
-    '2225079331',
-    '2460028834',
-    '6234066600',
-    '7826062821',
-    '2538030581',
-    '0326012322',  # УПРДОР 'ЮЖНЫЙ БАЙКАЛ'
-    '5752000133',
-    '2309033598',
-    '2320100329'
-]
