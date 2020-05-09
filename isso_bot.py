@@ -1,9 +1,6 @@
-import re
 import time
 from contextlib import closing
-
 from psycopg2.extras import DictCursor
-import random
 import loader
 from config import DATABASE, USER, PASSWORD, HOST, hello, menu, token, proxy_list, in_development
 import telebot
@@ -14,9 +11,7 @@ from db_worker import States
 
 # ============================== BOT API CONNECTION ==============================
 
-# number = random.randrange(len(proxy_list))
-# print(f"Proxy number #{number}")
-apihelper.proxy = {'https': f'socks5h://{proxy_list[8]}'}
+# apihelper.proxy = {'https': f'socks5h://{proxy_list[13]}'}
 bot = telebot.TeleBot(token)
 
 
@@ -121,7 +116,8 @@ def customer_details(message):
     Формирует полный отчет из трёх частей по контрагенту:
     Часть 1: Общие данные по контрагенту. Идет запрос в СУБД если нет то на API https://dadata.ru/api/suggest/party/
     Часть 2: Технический отчет по контрагенту. Смотрим есть ли в таблицах Росавтодор ИССО на балансе этого контрагента
-    Часть 3: Финансовый отчет по контрагенту.
+    Часть 3: Отчет по торгам контрагента.
+    Часть 4: План закупок контрагента.
     :param message: объект message (а оттуда чат id и ИНН контрагента)
     :return: None
     """
@@ -130,7 +126,7 @@ def customer_details(message):
 
     # ---------------------   ОБЩИЕ ДАННЫЕ ПО КОНТРАГЕНТУ   ---------------------
     # Пытаюсь получить отчет из СУБД и записать в переменную "mes"
-    mes = sql_requests.get_customer_details(message.text[1:])
+    mes = sql_requests.customer_details(message.text[1:])
     if mes:
         # Если в отчет из СУБД вернулся то отправляю его
         bot.send_message(message.chat.id, mes, parse_mode="HTML")
@@ -138,7 +134,7 @@ def customer_details(message):
         # а иначе шлю запрос в DADATA API и делаю INSERT в СУБД
         try:
             loader.find_customer(message.text[1:])
-            mes = sql_requests.get_customer_details(message.text[1:])
+            mes = sql_requests.customer_details(message.text[1:])
             bot.send_message(message.chat.id, mes, parse_mode="HTML")
         except IndexError as e:
             # Если IndexError то значит такого контрагента нет ни в одной СУБД
@@ -163,7 +159,7 @@ def customer_details(message):
         # Если на балансе нет ни одного сооружения, то отчеты не формируются
         print('ИССО нет на балансе')
 
-    # ---------------------   ФИНАНСОВЫЙ ОТЧЕТ ПО КОНТРАГЕНТУ   ---------------------
+    # ---------------------   ОТЧЕТ ПО ТОРГАМ КОНТРАГЕНТА   ---------------------
     # Пытаюсь получить отчет по тендерам из СУБД и записать в переменную "fin_rep"
     fin_rep = sql_requests.financial_report(message.text[1:])
     if fin_rep:
@@ -171,18 +167,18 @@ def customer_details(message):
         bot.send_message(message.chat.id, fin_rep, parse_mode="HTML")
     else:
         # А иначе идем на zakupki.gov.ru и ищем там все тендеры и план-графики контрагента
-        while True:
-            tenders_list = loader.download_tenders(message.text[1:])
-            if not tenders_list:
-                fin_rep = 'По данному контрагенту информация отсутствует...'
-                bot.send_message(message.chat.id, fin_rep, parse_mode="HTML")
-                break
-            elif tenders_list == 'Error503':
-                continue
-            else:
-                fin_rep = sql_requests.financial_report(message.text[1:])
-                bot.send_message(message.chat.id, fin_rep, parse_mode="HTML")
-                break
+        fin_rep = 'Подготовка отчета по торгам займёт до 15 минут.\n' \
+                  'Пожалуйста подождите ...'
+        bot.send_message(message.chat.id, fin_rep, parse_mode="HTML")
+        tenders_list = loader.download_tenders(message.text[1:])
+        if not tenders_list:
+            fin_rep = 'По данному контрагенту информация отсутствует...'
+            bot.send_message(message.chat.id, fin_rep, parse_mode="HTML")
+        else:
+            fin_rep = sql_requests.financial_report(message.text[1:])
+            bot.send_message(message.chat.id, fin_rep, parse_mode="HTML")
+
+    # ---------------------   ПЛАН ЗАКУПОК КОНТРАГЕНТА   ---------------------
 
 
 @bot.message_handler(commands=["future_projects"])
@@ -191,6 +187,21 @@ def download_plans(message):
     for project in future_projects:
         bot.send_message(message.chat.id, project)
 
+
+@bot.message_handler(commands=["update_tenders"])
+def update_tenders(message):
+    customers_list = sql_requests.customers_list()
+    for customer in customers_list:
+        mes = f"Начинаю загрузку клиента: {customer['inn']}\n" \
+              f"{customer['fullname']}"
+        bot.send_message(message.chat.id, mes, parse_mode="HTML")
+        result = loader.download_tenders(customer['inn'])
+        if result:
+            mes = f"Загружено успешно: {customer['inn']}"
+            bot.send_message(message.chat.id, mes, parse_mode="HTML")
+        else:
+            mes = f"Что-то пошло не так: {customer['inn']}"
+            bot.send_message(message.chat.id, mes, parse_mode="HTML")
 
 # ===================================================== ADVANCED MENU ==================================================
 

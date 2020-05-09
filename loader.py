@@ -2,8 +2,12 @@ import random
 import re
 import time
 from datetime import datetime
+
 from selenium import webdriver
+from xvfbwrapper import Xvfb
+from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import NoSuchElementException, WebDriverException
+
 import sql_requests
 import requests
 import config
@@ -61,39 +65,60 @@ def parsing_data(page, customer_inn):
 
 @timekeeper
 def download_tenders(customer_inn):
-    driver = webdriver.Chrome()
+    vdisplay = Xvfb()
+    vdisplay.start()
+    chrome_options = Options()
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-setuid-sandbox")
+    driver = webdriver.Chrome('/usr/bin/chromedriver')
+    # driver = webdriver.Chrome()
     driver.get("https://zakupki.gov.ru/")
     input_search = driver.find_element_by_id("quickSearchForm_header_searchString")
     input_search.click()
     input_search.send_keys(customer_inn)
-    time.sleep(random.randint(1, 3))
+    time.sleep(0.5)
     input_search.submit()
+    time.sleep(random.randint(1, 3))
+    number = int(''.join(re.findall(r'\d+', driver.find_element_by_class_name("search-results__total").text)))
+    print(number)
     tenders = []
-    # Запускаем цикл сбора информации, котррую затем преобразовавыем в формат json и складываем в переменную tenders
+    # Запускаем цикл сбора информации, которую затем преобразовавыем в формат json и складываем в переменную tenders
     try:
         while True:
-            time.sleep(random.randint(1, 2))
+            time.sleep(0.5)
             page = driver.page_source
             tenders_list = parsing_data(page, customer_inn)
             tenders.extend(tenders_list)
             time.sleep(random.randint(1, 2))
             button_next = driver.find_element_by_class_name("paginator-button-next")
             driver.execute_script("arguments[0].click();", button_next)
-            time.sleep(random.randint(1, 2))
+            time.sleep(random.randint(3, 5))
 
     # Если в блоке пагинации нет элемента "next page" значит мы дошли до конца списка
     except NoSuchElementException:
         if len(tenders) == 0:
-            print('tenders = [...]')
+            print(f"У клиента с ИНН {customer_inn} нет закупок.\n")
             driver.close()
+            vdisplay.stop()
             return False
-        else:
-            print(f"{customer_inn} finished normally")
+        elif len(tenders) == number or len(tenders) == 1000:
+            print(f"Загрузка торгов по ИНН {customer_inn} завершена успешно.")
             driver.close()
+            vdisplay.stop()
             for tender in tenders:
+                # Идем циклом по тендерам и вставляем в СУБД
                 sql_requests.insert_into_tendersapp_tender(tender)
-            driver.close()
             return True
+        elif len(tenders) < number:
+            driver.close()
+            print(f"Во время загрузки торгов по ИНН {customer_inn} часть данных была потеряна.\n"
+                  f"Объявлено торгов: {number}, загружено торгов: {len(tenders)}\n")
+            download_tenders(customer_inn)
+            return True
+        else:
+            driver.close()
+            print(f"Что-то пошло не так во время загрузки тендеров клиента с ИНН {customer_inn}")
+            return False
     except:
         print("Неизвестная ошибка при загрузке тендеров")
         return False
@@ -121,7 +146,7 @@ def download_plans(customer_inn):
         plans_list = parsing_plans(page, customer_inn)
         print(type(plans_list))
         plans.extend(plans_list)
-        # Запускаем цикл сбора информации, котррую затем преобразовавыем в формат json и складываем в переменную tenders
+        # Запускаем цикл сбора информации, которую затем преобразовавыем в формат json и складываем в переменную tenders
         try:
             while True:
                 time.sleep(random.randint(1, 2))
@@ -199,7 +224,7 @@ def parsing_plans(page, customer_inn):
     return plans
 
 
-# ================================== ЗАГРУЗКА ЮРЛИЦ ==================================
+# ================================== ЗАГРУЗКА ЮРЛИЦ ИЗ DADATA API ==================================
 
 
 def find_customer(company_inn):

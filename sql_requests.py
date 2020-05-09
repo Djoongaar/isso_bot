@@ -147,7 +147,7 @@ def insert_into_projectsapp_customer(data):
 # =============================== SELECT FROM DATABASE ===============================
 
 
-def get_customer_details(customer_inn):
+def customer_details(customer_inn):
     report = {}
     try:
         with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
@@ -184,68 +184,6 @@ def get_customer_details(customer_inn):
                f"{report['name']}"
     except KeyError as e:
         print(e)
-        return False
-
-
-def financial_report(customer_inn):
-    report = {}
-    with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
-        with conn.cursor(cursor_factory=DictCursor) as cursor:
-            cursor.execute(
-                f"""
-                select sum(start_price)
-                from tendersapp_tender
-                where customer_inn = '{customer_inn}' 
-                and created between '2019-01-01' and '2020-01-01'
-                """
-            )
-            for i in cursor:
-                report['contracts_2019'] = f'{i["sum"]}'
-        with conn.cursor(cursor_factory=DictCursor) as cursor:
-            cursor.execute(
-                f"""
-                select sum(start_price)
-                from tendersapp_tender
-                where to_tsvector('russian', name) @@ to_tsquery('russian', '(мост | путепровод | эстакада | тоннель)') and customer_inn = '{customer_inn}' 
-                    and (created between '2019-01-01' and '2020-01-01')
-                """
-            )
-            for i in cursor:
-                report['bridges_2019'] = f'{i["sum"]}'
-        with conn.cursor(cursor_factory=DictCursor) as cursor:
-            cursor.execute(
-                f"""
-                select sum(start_price)
-                from tendersapp_plan
-                where customer_inn = '{customer_inn}'
-                """
-            )
-            for i in cursor:
-                report['plans_2020'] = f'{i["sum"]}'
-        with conn.cursor(cursor_factory=DictCursor) as cursor:
-            cursor.execute(
-                f"""
-                select sum(start_price)
-                from tendersapp_plan
-                where to_tsvector('russian', name) @@ to_tsquery('russian', '(мост | путепровод | эстакада | тоннель)') and customer_inn = '{customer_inn}'
-                """
-            )
-            for i in cursor:
-                report['plans_isso_2020'] = f'{i["sum"]}'
-    if report['contracts_2019'] != 'None':
-        contracts_2019 = get_rate(report['contracts_2019'])
-        bridges_2019 = get_rate(report['bridges_2019'])
-        plans_2020 = get_rate(report['plans_2020'])
-        plans_isso_2020 = get_rate(report['plans_isso_2020'])
-        return f"<b>Финансовая статистика:</b>\n" \
-               f"Освоено в 2019г.: {contracts_2019}\n" \
-               f"... в том числе на ИССО: {bridges_2019}\n" \
-               f"План бюджета на 2020: {plans_2020}\n" \
-               f"... в том числе на ИССО: {plans_isso_2020}\n" \
-               f"\n" \
-               f"<b>Планируемые проекты: </b>\n" \
-               f"/future_projects\n"
-    else:
         return False
 
 
@@ -364,6 +302,68 @@ def type_report(customer_inn):
     return types_hist_path
 
 
+def financial_report(customer_inn):
+    report = {}
+    with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                select sum(start_price)
+                from tendersapp_tender
+                where customer_inn = '{customer_inn}' 
+                and created between '2019-01-01' and '2020-01-01'
+                """
+            )
+            for i in cursor:
+                report['contracts_2019'] = f'{i["sum"]}'
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                select sum(start_price)
+                from tendersapp_tender
+                where to_tsvector('russian', name) @@ to_tsquery('russian', '(мост | путепровод | эстакада | тоннель)') and customer_inn = '{customer_inn}' 
+                    and (created between '2019-01-01' and '2020-01-01')
+                """
+            )
+            for i in cursor:
+                report['bridges_2019'] = f'{i["sum"]}'
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                select sum(start_price)
+                from tendersapp_plan
+                where customer_inn = '{customer_inn}'
+                """
+            )
+            for i in cursor:
+                report['plans_2020'] = f'{i["sum"]}'
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                select sum(start_price)
+                from tendersapp_plan
+                where to_tsvector('russian', name) @@ to_tsquery('russian', '(мост | путепровод | эстакада | тоннель)') and customer_inn = '{customer_inn}'
+                """
+            )
+            for i in cursor:
+                report['plans_isso_2020'] = f'{i["sum"]}'
+    if report['contracts_2019'] != 'None':
+        contracts_2019 = get_rate(report['contracts_2019'])
+        bridges_2019 = get_rate(report['bridges_2019'])
+        plans_2020 = get_rate(report['plans_2020'])
+        plans_isso_2020 = get_rate(report['plans_isso_2020'])
+        return f"<b>Финансовая статистика:</b>\n" \
+               f"Освоено в 2019г.: {contracts_2019}\n" \
+               f"... в том числе на ИССО: {bridges_2019}\n" \
+               f"План бюджета на 2020: {plans_2020}\n" \
+               f"... в том числе на ИССО: {plans_isso_2020}\n" \
+               f"\n" \
+               f"<b>Планируемые проекты: </b>\n" \
+               f"/future_projects\n"
+    else:
+        return False
+
+
 def future_projects(customer_inn):
     projects = []
     with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
@@ -379,3 +379,28 @@ def future_projects(customer_inn):
             for i in cursor:
                 projects.append(i['name'])
     return projects
+
+
+def customers_list():
+    customers = []
+    with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                     SELECT count(*) AS count,
+                        c.fullname,
+                        c.inn
+                       FROM projectsapp_project p
+                         JOIN projectsapp_customer c ON p.customer_id = c.id
+                      GROUP BY c.id
+                      ORDER BY (count(*)) DESC
+                     LIMIT 200;
+                    """
+            )
+            for i in cursor:
+                customers.append({
+                    "count": i['count'],
+                    "fullname": i['fullname'],
+                    "inn": i['inn']
+                })
+    return customers
