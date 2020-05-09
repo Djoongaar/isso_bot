@@ -1,13 +1,13 @@
-import json
-import os
 import random
 import re
 import time
 from datetime import datetime
-from bs4 import BeautifulSoup
 from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, WebDriverException
 import sql_requests
+import requests
+import config
+from bs4 import BeautifulSoup
 
 
 def timekeeper(function_to_decorate):
@@ -22,47 +22,41 @@ def timekeeper(function_to_decorate):
     return wrapper
 
 
-# ================================== ПАРСИНГ ТЕНДЕРОВ ==================================
-@timekeeper
-def parsing_data(customer_inn):
-    tenders = []
-    path = os.path.join("./tendersapp/loaded_pages/", str(customer_inn))
-    for j in os.listdir(path):
-        with open(f"{path}/{j}", "r", encoding="utf-8") as file:
-            soup = BeautifulSoup(file, 'html.parser')
-            file.close()
-            numbers = soup.find_all("div", class_="search-registry-entry-block box-shadow-search-input")
-            for i in numbers:
-                try:
-                    number = i.find("div", class_="registry-entry__header-mid__number").text.strip()[2:]
-                    start_prices = sum([int(''.join(re.findall(r'\d', price.text))) / 100 for price in i
-                                       .find_all("div", class_="price-block__value")])
-                    dates = i.find_all("div", class_="data-block mt-auto")
-                    created = "-".join(
-                        re.findall(r'\d+', dates[0].find_all("div", class_="data-block__value")[0].text)[::-1])
-                    updated = "-".join(
-                        re.findall(r'\d+', dates[0].find_all("div", class_="data-block__value")[1].text)[::-1])
-                    statuses = i.find("div", class_="registry-entry__header-mid__title").text.strip()
-                    names = i.find("div", class_="registry-entry__body-value").text.strip()
-                    tenders.append({
-                        "model": "tendersapp.tender",
-                        "pk": number,
-                        "fields": {
-                            "start_price": start_prices,
-                            "final_price": 0,
-                            "created": created,
-                            "updated": updated,
-                            "status": statuses,
-                            "name": names,
-                            "customer_inn": str(customer_inn)
-                        }
-                    })
-                except:
-                    print(f'Exception erased with number {i}')
+# ================================== ЗАГРУЗКА ТЕНДЕРОВ ==================================
 
-    with open(f'./tendersapp/loaded_data/{customer_inn}.json', 'w', encoding='utf-8') as file:
-        json.dump(tenders, file, ensure_ascii=False, indent=4)
-        file.close()
+
+def parsing_data(page, customer_inn):
+    tenders = []
+    soup = BeautifulSoup(page, 'html.parser')
+    numbers = soup.find_all("div", class_="search-registry-entry-block box-shadow-search-input")
+    for i in numbers:
+        try:
+            number = i.find("div", class_="registry-entry__header-mid__number").text.strip()[2:]
+            start_prices = sum([int(''.join(re.findall(r'\d', price.text))) / 100 for price in i
+                               .find_all("div", class_="price-block__value")])
+            dates = i.find_all("div", class_="data-block mt-auto")
+            created = "-".join(
+                re.findall(r'\d+', dates[0].find_all("div", class_="data-block__value")[0].text)[::-1])
+            updated = "-".join(
+                re.findall(r'\d+', dates[0].find_all("div", class_="data-block__value")[1].text)[::-1])
+            statuses = i.find("div", class_="registry-entry__header-mid__title").text.strip()
+            names = i.find("div", class_="registry-entry__body-value").text.strip()
+            tenders.append({
+                "model": "tendersapp.tender",
+                "pk": number,
+                "fields": {
+                    "start_price": start_prices,
+                    "final_price": 0,
+                    "created": created,
+                    "updated": updated,
+                    "status": statuses,
+                    "name": names,
+                    "customer_inn": str(customer_inn)
+                }
+            })
+        except:
+            print(f'Exception erased with number {i}')
+    return tenders
 
 
 @timekeeper
@@ -74,41 +68,44 @@ def download_tenders(customer_inn):
     input_search.send_keys(customer_inn)
     time.sleep(random.randint(1, 3))
     input_search.submit()
-    time.sleep(random.randint(5, 7))
-    page_number = 1
-    path = os.path.join("./tendersapp/loaded_pages/", str(customer_inn))
-    if not os.path.exists(path):
-        os.makedirs(path)
-    with open(f"{path}/page_{str(page_number)}.html", "w", encoding="utf-8") as file:
-        file.write(driver.page_source)
-        file.close()
+    tenders = []
     # Запускаем цикл сбора информации, котррую затем преобразовавыем в формат json и складываем в переменную tenders
     try:
         while True:
             time.sleep(random.randint(1, 2))
+            page = driver.page_source
+            tenders_list = parsing_data(page, customer_inn)
+            tenders.extend(tenders_list)
+            time.sleep(random.randint(1, 2))
             button_next = driver.find_element_by_class_name("paginator-button-next")
             driver.execute_script("arguments[0].click();", button_next)
-            time.sleep(random.randint(2, 4))
-            page_number += 1
-            with open(f"{path}/page_{str(page_number)}.html", "w", encoding="utf-8") as file:
-                file.write(driver.page_source)
-                file.close()
+            time.sleep(random.randint(1, 2))
+
     # Если в блоке пагинации нет элемента "next page" значит мы дошли до конца списка
     except NoSuchElementException:
-        print(f"{customer_inn} finished normally")
-
-    # Вызвать сообщение если возникнет какая-то другая ошибка
+        if len(tenders) == 0:
+            print('tenders = [...]')
+            driver.close()
+            return False
+        else:
+            print(f"{customer_inn} finished normally")
+            driver.close()
+            for tender in tenders:
+                sql_requests.insert_into_tendersapp_tender(tender)
+            driver.close()
+            return True
     except:
-        print(f"{customer_inn} raised exception")
+        print("Неизвестная ошибка при загрузке тендеров")
+        return False
 
-
-# ================================== ПАРСИНГ ПЛАН-ГРАФИКОВ ==================================
+# ================================== ЗАГРУЗКА ПЛАН-ГРАФИКОВ ==================================
 
 
 @timekeeper
 def download_plans(customer_inn):
     driver = webdriver.Chrome()
-    driver.get("https://zakupki.gov.ru/epz/orderplan/search/results.html?morphology=on&search-filter=%D0%94%D0%B0%D1%82%D0%B5+%D1%80%D0%B0%D0%B7%D0%BC%D0%B5%D1%89%D0%B5%D0%BD%D0%B8%D1%8F&structured=true&fz44=on&customerPlaceWithNested=on&actualPeriodRangeYearFrom=2020&sortBy=BY_MODIFY_DATE&pageNumber=1&sortDirection=false&recordsPerPage=_10&searchType=false")
+    driver.get(
+        "https://zakupki.gov.ru/epz/orderplan/search/results.html?morphology=on&search-filter=%D0%94%D0%B0%D1%82%D0%B5+%D1%80%D0%B0%D0%B7%D0%BC%D0%B5%D1%89%D0%B5%D0%BD%D0%B8%D1%8F&structured=true&fz44=on&customerPlaceWithNested=on&actualPeriodRangeYearFrom=2020&sortBy=BY_MODIFY_DATE&pageNumber=1&sortDirection=false&recordsPerPage=_10&searchType=false")
     input_search = driver.find_element_by_id("searchString")
     input_search.click()
     input_search.send_keys(customer_inn)
@@ -142,8 +139,8 @@ def download_plans(customer_inn):
             print(f"{customer_inn} raised exception {e}")
     except NoSuchElementException as e:
         print(e)
-    for i in plans:
-        sql_requests.insert_into_tendersapp_plan(i)
+    for plan in plans:
+        sql_requests.insert_into_tendersapp_plan(plan)
 
 
 def parsing_plans(page, customer_inn):
@@ -202,9 +199,60 @@ def parsing_plans(page, customer_inn):
     return plans
 
 
-def insert_plans(plans):
-    for plan in plans:
-        sql_requests.insert_into_tendersapp_plan(plan)
+# ================================== ЗАГРУЗКА ЮРЛИЦ ==================================
+
+
+def find_customer(company_inn):
+    post = f"https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/party"
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': f"Token {config.API_KEY}"
+    }
+    data = {
+        'query': f"{company_inn}"
+    }
+    res = requests.post(post, headers=headers, json=data)
+    response = res.json()["suggestions"][0]
+    district = response["data"]["address"]["data"]["federal_district"]
+    if district == 'Центральный':
+        district_id = 91
+    elif district == 'Южный':
+        district_id = 92
+    elif district == 'Северо-Западный':
+        district_id = 93
+    elif district == 'Дальневосточный':
+        district_id = 94
+    elif district == 'Сибирский':
+        district_id = 95
+    elif district == 'Уральский':
+        district_id = 96
+    elif district == 'Приволжский':
+        district_id = 97
+    elif district == 'Северо-Кавказский':
+        district_id = 98
+    else:
+        district_id = 91
+    valid_data = {
+        "model": "projectsapp.customer",
+        "pk": str(response["data"]["ogrn"]),
+        "fields": {
+            "title": response["value"],
+            "fullname": response["data"]["name"]["full_with_opf"],
+            "management": response["data"]["management"]["post"] if response["data"]["management"] else None,
+            "name": response["data"]["management"]["name"] if response["data"]["management"] else None,
+            "inn": response["data"]["inn"],
+            "kpp": response["data"]["kpp"],
+            "okved": response["data"]["okved"],
+            "form_code": response["data"]["opf"]["code"] if response["data"]["opf"] else None,
+            "form_title": response["data"]["opf"]["full"] if response["data"]["opf"] else None,
+            "address": response["data"]["address"]["unrestricted_value"],
+            "district_id": district_id
+        }
+    }
+    print(valid_data)
+    sql_requests.insert_into_projectsapp_customer(valid_data)
+    return valid_data
 
 
 customers = [
@@ -243,6 +291,8 @@ customers = [
     '6725000810',
     '0278007048',
     '7714125897',
+    '7704515009',  # ГКУ ТЕНДЕРНЫЙ КОМИТЕТ
+    '7728381587',  # ГКУ УДМС г. Москвы
     '1660061210',
     '1402008636',
     '6658078110',
@@ -267,11 +317,3 @@ customers = [
     '2309033598',
     '2320100329'
 ]
-
-if __name__ == '__main__':
-    path = 'plans'
-    print(os.listdir(path))
-    for i in os.listdir(path):
-        with open(f"{path}/{i}", 'r', encoding='utf-8') as file:
-            dump = json.load(file)
-            insert_plans(dump)

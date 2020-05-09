@@ -3,19 +3,22 @@ import time
 from contextlib import closing
 
 from psycopg2.extras import DictCursor
-
+import random
 import loader
 from config import DATABASE, USER, PASSWORD, HOST, hello, menu, token, proxy_list, in_development
 import telebot
 from telebot import apihelper
 import psycopg2
 import sql_requests
-
-# ============================== BOT API CONNECTION ==============================
 from db_worker import States
 
-apihelper.proxy = {'https': f'socks5h://{proxy_list[4]}'}
+# ============================== BOT API CONNECTION ==============================
+
+# number = random.randrange(len(proxy_list))
+# print(f"Proxy number #{number}")
+apihelper.proxy = {'https': f'socks5h://{proxy_list[8]}'}
 bot = telebot.TeleBot(token)
+
 
 # ============================== PROCESS MESSAGE ==============================
 
@@ -114,12 +117,72 @@ def customer_list(message):
 
 @bot.message_handler(regexp="/\d{10}")  # customer_inn, customer details
 def customer_details(message):
-    rep = sql_requests.get_customer_details(message.text[1:])
+    """
+    Формирует полный отчет из трёх частей по контрагенту:
+    Часть 1: Общие данные по контрагенту. Идет запрос в СУБД если нет то на API https://dadata.ru/api/suggest/party/
+    Часть 2: Технический отчет по контрагенту. Смотрим есть ли в таблицах Росавтодор ИССО на балансе этого контрагента
+    Часть 3: Финансовый отчет по контрагенту.
+    :param message: объект message (а оттуда чат id и ИНН контрагента)
+    :return: None
+    """
+    # Сохраняю введенный ИНН в Vedis для дальнейшего использования
     States.set_inn(message.chat.id, message.text[1:])
-    bot.send_message(message.chat.id, rep, parse_mode="HTML")
 
-    bot.send_photo(message.chat.id, photo=open(sql_requests.type_report(message.text[1:]), 'rb'))
-    bot.send_photo(message.chat.id, photo=open(sql_requests.category_report(message.text[1:]), 'rb'))
+    # ---------------------   ОБЩИЕ ДАННЫЕ ПО КОНТРАГЕНТУ   ---------------------
+    # Пытаюсь получить отчет из СУБД и записать в переменную "mes"
+    mes = sql_requests.get_customer_details(message.text[1:])
+    if mes:
+        # Если в отчет из СУБД вернулся то отправляю его
+        bot.send_message(message.chat.id, mes, parse_mode="HTML")
+    else:
+        # а иначе шлю запрос в DADATA API и делаю INSERT в СУБД
+        try:
+            loader.find_customer(message.text[1:])
+            mes = sql_requests.get_customer_details(message.text[1:])
+            bot.send_message(message.chat.id, mes, parse_mode="HTML")
+        except IndexError as e:
+            # Если IndexError то значит такого контрагента нет ни в одной СУБД
+            print(e)
+            mes = 'Такой организации нет ни в одной азе данных. Пожалуйста проверьте правильность набора ИНН.'
+            bot.send_message(message.chat.id, mes, parse_mode="HTML")
+        except:
+            # Если другой исключение то что-то пошло не так
+            print("Что-то пошло не так")
+            mes = "Что-то пошло не так"
+            bot.send_message(message.chat.id, mes, parse_mode="HTML")
+
+    # ---------------------   ТЕХНИЧЕСКИЙ ОТЧЕТ ПО КОНТРАГЕНТУ   ---------------------
+    # Пытаюсь получить отчет по категориям из СУБД и записать в переменную "cat_rep"
+    cat_rep = sql_requests.category_report(message.text[1:])
+    if cat_rep:
+        # Если в отчет из СУБД вернулся то отправляю его в виде гистограммы
+        bot.send_photo(message.chat.id, photo=open(cat_rep, 'rb'))
+        # Также формирую отчет по типам объектов в виде гистограммы и отправляю его
+        bot.send_photo(message.chat.id, photo=open(sql_requests.type_report(message.text[1:]), 'rb'))
+    else:
+        # Если на балансе нет ни одного сооружения, то отчеты не формируются
+        print('ИССО нет на балансе')
+
+    # ---------------------   ФИНАНСОВЫЙ ОТЧЕТ ПО КОНТРАГЕНТУ   ---------------------
+    # Пытаюсь получить отчет по тендерам из СУБД и записать в переменную "fin_rep"
+    fin_rep = sql_requests.financial_report(message.text[1:])
+    if fin_rep:
+        # Если в отчет из СУБД вернулся то отправляю его
+        bot.send_message(message.chat.id, fin_rep, parse_mode="HTML")
+    else:
+        # А иначе идем на zakupki.gov.ru и ищем там все тендеры и план-графики контрагента
+        while True:
+            tenders_list = loader.download_tenders(message.text[1:])
+            if not tenders_list:
+                fin_rep = 'По данному контрагенту информация отсутствует...'
+                bot.send_message(message.chat.id, fin_rep, parse_mode="HTML")
+                break
+            elif tenders_list == 'Error503':
+                continue
+            else:
+                fin_rep = sql_requests.financial_report(message.text[1:])
+                bot.send_message(message.chat.id, fin_rep, parse_mode="HTML")
+                break
 
 
 @bot.message_handler(commands=["future_projects"])
