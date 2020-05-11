@@ -4,31 +4,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import psycopg2
 from psycopg2.extras import DictCursor
-
+from datetime import datetime
 from config import DATABASE, USER, PASSWORD, HOST
-
-top_regions = """
-            select count(p.id) as count, r.id, r.name
-            from projectsapp_project as p
-            join projectsapp_region as r
-            on p.region_id = r.id
-            group by r.id
-            order by count desc
-            limit 30
-            """
-
-top_customers = """
-SELECT count(*) AS count,
-c.title,
-c.fullname,
-c.address,
-c.inn
-FROM projectsapp_project p
-JOIN projectsapp_customer c ON p.customer_id = c.id
-GROUP BY c.id
-ORDER BY (count(*)) DESC
-LIMIT 50;
-"""
 
 
 def get_rate(money):
@@ -143,6 +120,33 @@ def insert_into_projectsapp_customer(data):
             )
         conn.commit()
 
+# =============================== UPDATE DATABASE ===============================
+
+
+def customer_tenders_updated(customer_inn):
+    dtt = str(datetime.now())
+    with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                update projectsapp_customer set tenders_updated = '{dtt}'
+                where inn = '{customer_inn}'
+                """
+            )
+            conn.commit()
+
+
+def customer_plans_updated(customer_inn):
+    dtt = str(datetime.now())
+    with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                update projectsapp_customer set plans_updated = '{dtt}'
+                where inn = '{customer_inn}'
+                """
+            )
+            conn.commit()
 
 # =============================== SELECT FROM DATABASE ===============================
 
@@ -235,7 +239,7 @@ def category_report(customer_inn):
     if sum(values):
         pd.DataFrame(values, categories, columns=['Количество']).plot(kind='bar', color='magenta', rot=0, width=0.8)
         plt.title('Количество сооружений по категориям, шт.')
-        category_hist_path = os.path.join('media', f'category_hist_{customer_inn}.png')
+        category_hist_path = os.path.join('media', f'category_{customer_inn}.png')
         plt.savefig(category_hist_path)
         plt.close()
         return category_hist_path
@@ -296,37 +300,56 @@ def type_report(customer_inn):
     types = pd.DataFrame(types)
     plt.bar(types['types'], types['count'], width=0.8)
     plt.title('Количество сооружений по типам, шт.')
-    types_hist_path = os.path.join('media', f'types_hist_{customer_inn}.png')
+    types_hist_path = os.path.join('media', f'types_{customer_inn}.png')
     plt.savefig(types_hist_path)
     plt.close()
     return types_hist_path
 
 
-def financial_report(customer_inn):
-    report = {}
+def report_2019(customer_inn):
+    report = []
     with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
         with conn.cursor(cursor_factory=DictCursor) as cursor:
             cursor.execute(
                 f"""
-                select sum(start_price)
-                from tendersapp_tender
-                where customer_inn = '{customer_inn}' 
-                and created between '2019-01-01' and '2020-01-01'
-                """
-            )
-            for i in cursor:
-                report['contracts_2019'] = f'{i["sum"]}'
-        with conn.cursor(cursor_factory=DictCursor) as cursor:
-            cursor.execute(
-                f"""
-                select sum(start_price)
-                from tendersapp_tender
-                where to_tsvector('russian', name) @@ to_tsquery('russian', '(мост | путепровод | эстакада | тоннель)') and customer_inn = '{customer_inn}' 
+                select sum(start_price),
+                    'ВСЕГО'::text as types
+                    from tendersapp_tender
+                    where customer_inn = '{customer_inn}'
+                    and created between '2019-01-01' and '2020-01-01'
+                union
+                select sum(start_price),
+                    'НА ИССО'::text as types
+                    from tendersapp_tender
+                    where to_tsvector('russian', name)
+                    @@ to_tsquery('russian', '(мост | путепровод | эстакада | тоннель)')
+                    and customer_inn = '{customer_inn}'
                     and (created between '2019-01-01' and '2020-01-01')
                 """
             )
             for i in cursor:
-                report['bridges_2019'] = f'{i["sum"]}'
+                report.append({
+                    "types": i["types"],
+                    "count": i["sum"]
+                })
+    types = [i['types'] for i in report if i['types'] is not None]
+    count = [int(i['count']) for i in report if i['count'] is not None]
+    if len(count):
+        pd.DataFrame(count, types, columns=['Сумма, руб.']).plot(kind='bar', color='red', rot=0)
+        plt.title('Объявленные торги в 2019г. \n'
+                  'Общие расходы и расходы на содержание\n'
+                  'искусственных сооружений')
+        report_2019_path = os.path.join('media', f'report_2019_{customer_inn}.png')
+        plt.savefig(report_2019_path)
+        plt.close()
+        return report_2019_path
+    else:
+        return False
+
+
+def plans_report(customer_inn):
+    report = {}
+    with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
         with conn.cursor(cursor_factory=DictCursor) as cursor:
             cursor.execute(
                 f"""
@@ -347,15 +370,12 @@ def financial_report(customer_inn):
             )
             for i in cursor:
                 report['plans_isso_2020'] = f'{i["sum"]}'
-    if report['contracts_2019'] != 'None':
-        contracts_2019 = get_rate(report['contracts_2019'])
-        bridges_2019 = get_rate(report['bridges_2019'])
+    print(report)
+    if report['plans_2020'] != 'None':
         plans_2020 = get_rate(report['plans_2020'])
         plans_isso_2020 = get_rate(report['plans_isso_2020'])
-        return f"<b>Финансовая статистика:</b>\n" \
-               f"Освоено в 2019г.: {contracts_2019}\n" \
-               f"... в том числе на ИССО: {bridges_2019}\n" \
-               f"План бюджета на 2020: {plans_2020}\n" \
+        return f"<b>План - график 2020 - 2022 гг:</b>\n" \
+               f"Планируются закупки на сумму: {plans_2020}\n" \
                f"... в том числе на ИССО: {plans_isso_2020}\n" \
                f"\n" \
                f"<b>Планируемые проекты: </b>\n" \
@@ -381,6 +401,63 @@ def future_projects(customer_inn):
     return projects
 
 
+def regions_details(region_id):
+    report = {}
+    with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                select 
+                count(p.id) as count,
+                r.id,
+                r.name,
+                r.population,
+                r.area,
+                count(p.id) / area * 1000 as per_area,
+                count(p.id) * 1000000 / population as per_popul
+                    from projectsapp_project as p
+                    join projectsapp_region as r
+                on p.region_id = r.id
+                where r.id = '{region_id}'
+                group by r.id
+                limit 1;
+                """
+            )
+            for i in cursor:
+                report['Название'] = i['name'],
+                report['Количество сооружений'] = i['count'],
+                report['Население'] = i['population'],
+                report['Площадь региона'] = i['area'],
+                report['Плотность сооружений на 1000 кв.км.'] = i['per_area'],
+                report['Количество мостов на 1 млн жителей'] = i['per_popul']
+    print(report)
+    return '\n'.join(f"<b>{i}:</b> <i>{j[0] if isinstance(j, tuple) else j}</i>" for i, j in report.items())
+
+
+def regions_list():
+    regions = []
+    with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                """
+                select count(p.id) as count, r.id, r.name
+                from projectsapp_project as p
+                join projectsapp_region as r
+                on p.region_id = r.id
+                group by r.id
+                order by count desc
+                limit 30
+                """
+            )
+            for i in cursor:
+                region_id = i['id'] if i['id'] >= 10 else f"0{i['id']}"
+                regions.append(
+                    f"{i['name']}\n"
+                    f"Подробная информация: <i>/region{region_id}</i>"
+                )
+    return regions
+
+
 def customers_list():
     customers = []
     with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
@@ -388,7 +465,7 @@ def customers_list():
             cursor.execute(
                 f"""
                      SELECT count(*) AS count,
-                        c.fullname,
+                        c.title,
                         c.inn
                        FROM projectsapp_project p
                          JOIN projectsapp_customer c ON p.customer_id = c.id
@@ -396,6 +473,33 @@ def customers_list():
                       ORDER BY (count(*)) DESC
                      LIMIT 200;
                     """
+            )
+            for i in cursor:
+                customers.append(
+                    f"{i['title']}\n"
+                    f"ИНН: <i>/{i['inn']}</i>"
+                )
+    return customers
+
+
+def customers_to_update():
+    customers = []
+    with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cursor:
+            cursor.execute(
+                f"""
+                    SELECT count(*) AS count,
+                    c.fullname,
+                    c.inn,
+                    c.tenders_updated,
+                    plans_updated
+                    
+                    FROM projectsapp_project p
+                    FULL OUTER JOIN projectsapp_customer c ON p.customer_id = c.id 
+                    where c.tenders_updated < current_timestamp - interval '24 hour'
+                    GROUP BY c.id
+                    ORDER BY (count(*)) DESC;
+                """
             )
             for i in cursor:
                 customers.append({

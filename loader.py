@@ -3,6 +3,7 @@ import re
 import time
 from datetime import datetime
 
+from psycopg2 import errors
 from selenium import webdriver
 from xvfbwrapper import Xvfb
 from selenium.webdriver.chrome.options import Options
@@ -94,7 +95,13 @@ def download_tenders(customer_inn):
             print(f"Загрузка торгов по ИНН {customer_inn} завершена успешно.")
             for tender in tenders:
                 # Идем циклом по тендерам и вставляем в СУБД
-                sql_requests.insert_into_tendersapp_tender(tender)
+                try:
+                    sql_requests.insert_into_tendersapp_tender(tender)
+                except errors.lookup('42601') as e:
+                    # psycopg2.errors.SyntaxError
+                    print(f"WARNING!!! in tender {tender} raised an exception {e}")
+                    pass
+            sql_requests.customer_tenders_updated(customer_inn)
             return True
         elif len(tenders) < number*0.99:
             # Если у контрагента есть закупки но по какой-то причине нам не удалось их загрузить - вызываем рекурсию
@@ -156,7 +163,7 @@ def download_plans(customer_inn):
         # Если в блоке пагинации нет элемента "next page" значит мы дошли до конца списка
         except NoSuchElementException:
             driver.close()
-            vdisplay.stop()
+            # vdisplay.stop()
             if len(plans) == number == 0:
                 print(f"У клиента с ИНН {customer_inn} нет план-гафика.")
                 return False

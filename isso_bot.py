@@ -1,11 +1,9 @@
+import re
 import time
-from contextlib import closing
-from psycopg2.extras import DictCursor
 import loader
-from config import DATABASE, USER, PASSWORD, HOST, hello, menu, token, proxy_list, in_development
+from config import hello, menu, token, proxy_list
 import telebot
 from telebot import apihelper
-import psycopg2
 import sql_requests
 from db_worker import States
 
@@ -28,13 +26,14 @@ def say_hello(message):
 
 @bot.message_handler(commands=["back"])
 def callbacks(message):
+    """
+    Эта штука пока не работает но в будущем улучшит навигацию позволив командой /back
+    возвращаться к предыдущему пункту меню. Будет реализована с помощью стэка по типу
+    команды /nextRegions или /nextCustomers (они ниже)
+    """
     back = States.get_state(message.chat.id)
     if back == "/start":
         say_hello(message)
-    elif back == "/menu":
-        send_menu(message)
-    elif back == "/tenders":
-        tenders(message)
     elif back == "/customers":
         customer_list(message)
     elif back == "None":
@@ -44,9 +43,17 @@ def callbacks(message):
 
 
 # ==================================================== CURRENT MENU ===================================================
+@bot.message_handler(commands=["menu"])
+def menu_message(message):
+    bot.send_message(message.chat.id, menu, parse_mode='HTML')
+
 
 @bot.message_handler(commands=["nextRegions"])
 def next_regions(message):
+    """
+    Чтобы не заспамливать клиента кучей сообщений я сохраняю их в стэке и вывожу по 5 штук за раз
+    если юзер выдаст команду /nextRegions из стэка вырезутся и вернутся 5 сообщений
+    """
     try:
         for i in range(5):
             report, length = States.get_regions(message.chat.id)
@@ -64,18 +71,19 @@ def next_regions(message):
 
 @bot.message_handler(commands=["regions"])
 def regions_list(message):
-    regions = []
-    with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
-        with conn.cursor(cursor_factory=DictCursor) as cursor:
-            cursor.execute(sql_requests.top_regions)
-            for i in cursor:
-                region_id = i['id'] if i['id'] >= 10 else f"0{i['id']}"
-                regions.append(
-                    f"{i['name']}\n"
-                    f"Подробная информация: <i>/region{region_id}</i>"
-                )
+    """ Функция выводит список регионов прямо из стэка ведис а туда кладёт из СУБД """
+    regions = sql_requests.regions_list()
     States.add_regions(message.chat.id, regions)
     next_regions(message)
+
+
+@bot.message_handler(regexp="region\d{2}")
+def region_details(message):
+    reg_id = ''.join(re.findall(r'\d', message.text))
+    print(reg_id)
+    reg_rep = sql_requests.regions_details(reg_id)
+    if reg_rep:
+        bot.send_message(message.chat.id, reg_rep, parse_mode='HTML')
 
 
 @bot.message_handler(commands=["nextCustomers"])
@@ -97,15 +105,8 @@ def next_customers(message):
 
 @bot.message_handler(commands=["customers"])
 def customer_list(message):
-    customers = []
-    with closing(psycopg2.connect(dbname=DATABASE, user=USER, password=PASSWORD, host=HOST)) as conn:
-        with conn.cursor(cursor_factory=DictCursor) as cursor:
-            cursor.execute(sql_requests.top_customers)
-            for i in cursor:
-                customers.append(
-                    f"{i['title']}\n"
-                    f"ИНН: <i>/{i['inn']}</i>"
-                )
+    """ Функция записывает в ведис стэк клиентов """
+    customers = sql_requests.customers_list()
     States.add_customers(message.chat.id, customers)
     next_customers(message)
 
@@ -113,7 +114,7 @@ def customer_list(message):
 @bot.message_handler(regexp="/\d{10}")  # customer_inn, customer details
 def customer_details(message):
     """
-    Формирует полный отчет из трёх частей по контрагенту:
+    Функция формирует полный отчет из трёх частей по контрагенту:
     Часть 1: Общие данные по контрагенту. Идет запрос в СУБД если нет то на API https://dadata.ru/api/suggest/party/
     Часть 2: Технический отчет по контрагенту. Смотрим есть ли в таблицах Росавтодор ИССО на балансе этого контрагента
     Часть 3: Отчет по торгам контрагента.
@@ -159,12 +160,12 @@ def customer_details(message):
         # Если на балансе нет ни одного сооружения, то отчеты не формируются
         print('ИССО нет на балансе')
 
-    # ---------------------   ОТЧЕТ ПО ТОРГАМ КОНТРАГЕНТА   ---------------------
+    # ---------------------   ОТЧЕТ ПО 2019 г   ---------------------
     # Пытаюсь получить отчет по тендерам из СУБД и записать в переменную "fin_rep"
-    fin_rep = sql_requests.financial_report(message.text[1:])
+    fin_rep = sql_requests.report_2019(message.text[1:])
     if fin_rep:
         # Если в отчет из СУБД вернулся то отправляю его
-        bot.send_message(message.chat.id, fin_rep, parse_mode="HTML")
+        bot.send_photo(message.chat.id, photo=open(fin_rep, 'rb'))
     else:
         # А иначе идем на zakupki.gov.ru и ищем там все тендеры и план-графики контрагента
         fin_rep = 'Подготовка отчета по торгам займёт до 15 минут.\n' \
@@ -175,10 +176,13 @@ def customer_details(message):
             fin_rep = 'По данному контрагенту информация отсутствует...'
             bot.send_message(message.chat.id, fin_rep, parse_mode="HTML")
         else:
-            fin_rep = sql_requests.financial_report(message.text[1:])
+            fin_rep = sql_requests.report_2019(message.text[1:])
             bot.send_message(message.chat.id, fin_rep, parse_mode="HTML")
 
     # ---------------------   ПЛАН ЗАКУПОК КОНТРАГЕНТА   ---------------------
+    plans_report = sql_requests.plans_report(message.text[1:])
+    if plans_report:
+        bot.send_message(message.chat.id, plans_report, parse_mode="HTML")
 
 
 @bot.message_handler(commands=["future_projects"])
@@ -190,7 +194,9 @@ def download_plans(message):
 
 @bot.message_handler(commands=["update_tenders"])
 def update_tenders(message):
-    customers_list = sql_requests.customers_list()[15:]
+    customers_list = sql_requests.customers_list()[96:]
+    print(customers_list)
+    # bot.send_message(message.chat.id, '\n'.join(customers_list), parse_mode="HTML")
     for customer in customers_list:
         mes = f"Начинаю загрузку клиента: {customer['inn']}\n" \
               f"{customer['fullname']}"
@@ -203,30 +209,8 @@ def update_tenders(message):
             mes = f"Что-то пошло не так: {customer['inn']}"
             bot.send_message(message.chat.id, mes, parse_mode="HTML")
 
-# ===================================================== ADVANCED MENU ==================================================
 
-
-@bot.message_handler(commands=["menu"])
-def send_menu(message):
-    bot.send_message(message.chat.id, menu, parse_mode='HTML')
-
-
-@bot.message_handler(commands=["reports"])
-def reports(message):
-    bot.send_message(message.chat.id, in_development, parse_mode='HTML')
-
-
-@bot.message_handler(commands=["tenders"])
-def tenders(message):
-    bot.send_message(message.chat.id, in_development, parse_mode='HTML')
-
-
-@bot.message_handler(commands=["categories"])
-def categories(message):
-    bot.send_message(message.chat.id, 'Подробный отчет о категориях дорожных сооружений и их статистические данные Вы '
-                                      'можете изучить в статье на информационно-аналитическом портале '
-                                      '<a href="http://isso.su/report/categories">isso.su</a>',
-                     parse_mode="HTML", disable_web_page_preview=True)
+# =================================== EXCEPTIONS CATCHER ====================================
 
 
 @bot.message_handler(func=lambda message: message.text)

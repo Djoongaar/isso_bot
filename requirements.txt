@@ -11,9 +11,9 @@ future==0.18.2
 idna==2.9
 kiwisolver==1.2.0
 matplotlib==3.2.1
-mkl-fft==1.0.15
-mkl-random==1.1.0
-mkl-service==2.3.0
+# mkl-fft==1.0.15
+# mkl-random==1.1.0
+# mkl-service==2.3.0
 numpy==1.18.1
 pandas==1.0.3
 psycopg2==2.8.5
@@ -35,4 +35,4 @@ urllib3==1.25.8
 vedis==0.7.1
 win-inet-pton==1.1.0
 wincertstore==0.2
-xvfbwrapper==0.2.9
+# xvfbwrapper==0.2.9
