@@ -5,7 +5,7 @@ from datetime import datetime
 
 from psycopg2 import errors
 from selenium import webdriver
-from xvfbwrapper import Xvfb
+# from xvfbwrapper import Xvfb
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import NoSuchElementException, WebDriverException
 
